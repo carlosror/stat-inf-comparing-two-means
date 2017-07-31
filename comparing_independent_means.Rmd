@@ -1,0 +1,367 @@
+---
+title: "Comparing two population means"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 5
+    toc_float: true
+---
+
+<style type="text/css">
+
+body, td {
+   font-size: 18px;
+}
+h1 {
+  font-size: 32px;
+  font-weight: bold;
+}
+h2 {
+  font-size: 28px;
+  font-weight: bold;
+}
+h3 {
+  font-size: 24px;
+  font-weight: bold;
+}
+h4 {
+  font-size: 20px;
+  font-weight: bold;
+}
+code.r{
+  font-size: 16px;
+}
+pre {
+  font-size: 16px
+}
+</style>
+
+## 1.0 Introduction
+
+The [General Social Survey (GSS)](http://gss.norc.org/) is a sociological survey used to collect data on a wide variety of demographic characteristics and attitudes of residents of the United States. The data has been collected since 1972, approximately every 2 years, by the [National Opinion Research Center (NORC)](http://www.norc.org/Pages/default.aspx) at the University of Chicago. The latest data is from the spring of 2016. The data for the each year the survey was carried out can be found [here](http://gss.norc.org/get-the-data/stata) in STATA format, and [here](http://gss.norc.org/get-the-data/spss) in SPSS format. The [GSS Codebook](http://gss.norc.org/Get-Documentation), in PDF format, documents the survey data for all years. The R notebook can be found in the project's [Github page](https://github.com/carlosror/stat-inf-comparing-two-means).
+
+## 2.0 Variables of interest
+
+This notebook is about making inferences about the true difference in average self-ranking in society between two populations: Americans who voted for Mitt Romney in the 2012 presidential election, and those who voted for Obama. The survey's interviewer asked respondents: **"In our society there are groups which tend to be towards the top and those that are towards the bottom. Here we have a scale that runs from top to bottom. Where would you put yourself on this scale?"**, and coded the response as $RANK$. The scale was from 1 to 10, where a 1 meant "at the top" and 10 "at the bottom". A subset of the respondents (those who had previously stated they voted in the 2012 presidential elections and remembered who they had voted for) were also asked: **"Did you vote for Obama or Romney?"**, and their reponse was coded as $PRES12$.
+
+## 3.0 Reading the data
+
+The R library [**foreign**](https://cran.r-project.org/web/packages/foreign/foreign.pdf) allows R to read in STATA files, among others. We can then get the variables we want as a two-column dataframe.
+
+```{r, message=FALSE, warning=FALSE}
+library(foreign) # Used to read STATA (*.DTA) files
+gss2016 <- read.dta("GSS2016.DTA") # read the file
+gss2016_voting_ranking <- gss2016[c("rank", "pres12")] # only need two fields
+
+summary(gss2016_voting_ranking)
+```
+
+Mini data munging
+```{r}
+# Remove NA's
+gss2016_voting_ranking <- gss2016_voting_ranking[!is.na(gss2016_voting_ranking$rank) & !is.na(gss2016_voting_ranking$pres12),]
+# Keep only those who voted for either Obama or Romney
+# Obama = 1, Romney = 2
+gss2016_voting_ranking <- gss2016_voting_ranking[gss2016_voting_ranking$pres12 == 1 | gss2016_voting_ranking$pres12 == 2,]
+
+# Replace "1" and "2" in the "pres12" variable
+gss2016_voting_ranking$pres12[gss2016_voting_ranking$pres12 == 1] <- "Obama"
+gss2016_voting_ranking$pres12[gss2016_voting_ranking$pres12 == 2] <- "Romney"
+
+# Convert "pres12" to factor
+gss2016_voting_ranking$pres12 <- factor(gss2016_voting_ranking$pres12)
+
+summary(gss2016_voting_ranking)
+```
+
+```{r}
+# Self-rank of those who voted for Romney
+Romney_self_rank <- gss2016_voting_ranking[gss2016_voting_ranking$pres12 == "Romney",]$rank
+# Number of respondents who voted for Romney
+Romney_num <- length(Romney_self_rank)
+# Average self-ranking of Romney voters
+Romney_self_rank_mean <- mean(Romney_self_rank)
+# Standard deviation of self-ranking of Romney voters
+Romney_self_rank_sd <- sd(Romney_self_rank)
+
+# Self-rank of those who voted for Romney
+Obama_self_rank <- gss2016_voting_ranking[gss2016_voting_ranking$pres12 == "Obama",]$rank
+# Number of respondents who voted for Romney
+Obama_num <- length(Obama_self_rank)
+# Average self-ranking of Romney voters
+Obama_self_rank_mean <- mean(Obama_self_rank)
+# Standard deviation of self-ranking of Romney voters
+Obama_self_rank_sd <- sd(Obama_self_rank)
+
+# Building the dataframe
+Romney_column <- c(Romney_num, Romney_self_rank_mean, Romney_self_rank_sd)
+Obama_column <- c(Obama_num, Obama_self_rank_mean, Obama_self_rank_sd)
+
+summary_df <- data.frame(Romney_column, Obama_column)
+
+rownames(summary_df) <- c("Number of observations", "Mean self-ranking", "Standard deviation of self-ranking")
+
+colnames(summary_df) <- c("Romney", "Obama")
+summary_df
+```
+
+## 4.0 $95\%$ confidence interval of the difference in mean self-ranking
+
+We can compute a $95\%$ confidence interval for the true difference in mean self-ranking, $\mu_{diff}$, between Americans who voted for Romney in 2012 and those who voted for Obama, by using the [Central Limit Theorem (CLT)](http://www.stat.wmich.edu/s160/book/node43.html). The CLT says that the sampling distribution of a statistic, in this case a difference between two independent means, is approximately normal, with the true difference, $\mu_{diff}=\mu_1-\mu_2$, as its mean, and the standard error of the sample, $SE=\sqrt{\frac{s^2_1}{n_1} + \frac{s^2_2}{n_2}}$, as its standard deviation, where $n_1$ and $n_2$ are the sizes of each set of samples. 
+
+$$
+(\bar{x}_1-\bar{x}_2)\sim\ N(mean = \mu_{diff}, sd=\sqrt{\frac{\sigma^2_1}{n_1} + \frac{\sigma^2_2}{n_2}})
+$$
+
+If we were able to draw many samples from both populations (Americans who voted for Romney and those who voted for Obama), and computed the difference in mean self-ranking between each two-sample set, $(\bar{x}_1-\bar{x}_2)$, the CLT says the distribution of that difference in means is nearly normal. 
+
+In reality, we can only draw one sample from the population. We typically don't know the true difference in mean self-ranking of the two populations, $\mu_{diff}=\mu_1-\mu_2$, or the true standard deviations of either population, $\sigma_1$ and $\sigma_2$. We can use the standard deviations of the two samples, $s_1$ and $s_2$, as proxies for $\sigma_1$ and $\sigma_2$. We also don't know where the difference in sample means we have drawn, $(\bar{x}_1-\bar{x}_2)$, falls in the sampling distribution, but from the CLT, we do know that the differences in means of $95\%$ of the sample pairs drawn will fall within $1.96\cdot \sqrt{\frac{\sigma^2_1}{n_1} + \frac{\sigma^2_2}{n_2}}=1.96\cdot SE$ of $\mu_{diff}$. For $95\%$ of the samples we draw, an interval within $1.96\cdot \sqrt{\frac{s^2_1}{n_1} + \frac{s^2_2}{n_2}}=1.96\cdot SE_{(\bar{x}_1 - \bar{x}_2)}$ of $(\bar{x}_1-\bar{x}_2)$ will include the true difference in means between the two populations, $\mu_{diff}$. For any two-sample set whose difference in means estimate $(\bar{x}_1-\bar{x}_2)$ falls within $1.96\cdot SE$ of $\mu_{diff}$, which will happen $95\%$ of the time, we are $95\%$ confident that an interval centered around $(\bar{x}_1-\bar{x}_2)$ and within $1.96\cdot SE_{(\bar{x}_1 - \bar{x}_2)}$ of $(\bar{x}_1-\bar{x}_2)$ will contain the true difference in means of the two populations, $\mu_{diff}$.
+
+**$95\%$ confidence interval of the difference in population proportions of gun ownership:**
+
+$$
+(\bar{x}_1-\bar{x}_2) \pm 1.96\cdot SE_{(\bar{x}_1 - \bar{x}_2)} = (\bar{x}_1-\bar{x}_2) \pm 1.96\cdot \sqrt{\frac{s^2_1}{n_1} + \frac{s^2_2}{n_2}}
+$$
+
+### 4.1 An example
+
+It is much easier to understand with an actual example and a plot. Suppose we have two populations with true means $\mu_1=16$ and $\mu_2=12$, true standard deviations $\sigma_1=8.0$ and $\sigma_2=6.0$, and so a true difference in means of $\mu_{diff}=\mu_1-\mu_2=4.0$ between them, and we draw a sample of size $n_1=n_2=100$ from each population. Per the CLT, the distribution of the difference in sample means taken from those two populations is approximately normal: $(\bar{x}_1-\bar{x}_2)\sim\ N(mean = 4.0, sd=\sqrt{\frac{8.0^2}{100} + \frac{6.0^2}{100}}=1.0)$. Any two-sample set drawn from the two populations whose difference in means estimate $(\bar{x}_1-\bar{x}_2)$ falls within $(4.0-1.96\cdot1.0,\ 4.0+1.96\cdot1.0)=(2.04,\ 5.96)$ will have a $95\%$ confidence interval that contains the true difference in means, $\mu_{diff}=4.0$. If we draw a sample from each population and the samples' means are $\bar{x}_1=17.25$ and $\bar{x}_2=11.5$, the $95\%$ confidence interval centered around $(\bar{x}_1-\bar{x}_2)=5.75$ will contain the true difference in means $\mu_{diff}=4.0$. Since the person taking the samples typically doesn't know either $\sigma_1$ or $\sigma_2$, she will use her samples' standard deviations, $s_1=8.5$ and $s_2=5.5$, to compute $SE_{(\bar{x}_1 - \bar{x}_2)}$, for the purposes of computing the $95\%$ confidence interval. $SE_{(\bar{x}_1 - \bar{x}_2)}$ will be: $SE_{(\bar{x}_1 - \bar{x}_2)}=\sqrt{\frac{8.5^2}{100} + \frac{5.5^2}{100}}=\sqrt{0.7225+0.3025}=1.0124$, and the $95\%$ confidence interval will be: $(5.75-1.96\cdot1.0124,\ 5.75+1.96\cdot1.0124)=(3.7657,\ 7.7343)$, which contains the true mean difference $\mu_{diff}=4.0$.
+
+```{r, echo=FALSE}
+#http://www.statmethods.net/advgraphs/probability.html
+
+n_1_example <- 100; n_2_example <- 100
+mu_1 <- 16.0; mu_2 <- 12.0; mu_diff <- mu_1 - mu_2
+sigma_1 <- 8.0; sigma_2 <- 6.0
+se <- sqrt(sigma_1 ^ 2 / n_1_example + sigma_2 ^ 2 / n_2_example)
+
+# x = p_diff +/- 4 std_dev's
+x <- seq(-4,4,length=1000)*se + mu_diff
+hx <- dnorm(x, mu_diff ,se)
+
+# Values used to shade areas under the curve
+upper_bound <- mu_diff + 1.96 * se 
+lower_bound <- mu_diff - 1.96 * se 
+
+plot(x, hx, type="n", xlab = "", ylab="", main="Sampling distribution of a difference in means", axes=FALSE)
+
+i <- x >= upper_bound & x <= max(x) # indexes of x where x >= upper_bound
+lines(x, hx) # plots normal distribution
+polygon(c(upper_bound,x[i],max(x)), c(0,hx[i],0), col="grey") # shades area grey where x >= upper_bound
+
+j <- x >= min(x) & x <= lower_bound # indexes of x where x <= than lower_bound
+polygon(c(min(x),x[j],lower_bound), c(0,hx[j],0), col="grey") # shades area grey where x <= lower_bound
+
+axis(1, at=seq(0.00, 8.0, 0.5), pos=0) # draws axis
+abline(v=mu_diff)
+grid()
+
+x_1_hat <- 17.25; x_2_hat <- 11.5; mu_diff_hat_example <- x_1_hat - x_2_hat
+s_1 <- 8.5; s_2 <- 5.5
+se_mu_diff_hat <- sqrt(s_1 ^ 2 / n_1_example + s_2 ^ 2 / n_2_example)
+axis(1, at=c(mu_diff_hat_example - 1.96 * se_mu_diff_hat, mu_diff_hat_example, mu_diff_hat_example + 1.96 * se_mu_diff_hat), pos=-0.1, col = "blue", lwd = 2, lwd.ticks = 1) 
+
+text(x = 0.6, y = 0.37, labels = expression(paste(mu[diff], " = 4.0")))
+text(x = 0.8, y = 0.33, labels = expression(paste(n[1], " = ", n[2],  " = 100")))
+text(x = 0.65, y = 0.29, labels = expression(paste(SE, " = 1.00")))
+text(x = 0.825, y = 0.255, labels = expression(paste(bar(x)[1]-bar(x)[2], " = 5.75")))
+text(x = 1.0, y = 0.22, labels = expression(paste(SE[bar(x)[1]-bar(x)[2]], " = 1.0124")))
+```
+
+If we are unlucky and  draw samples whose difference in means $(\bar{x}_1-\bar{x}_2)$ falls in the shaded area, which should only happen $5\%$ of the time, its $95\%$ confidence interval will not include the true difference in means $\mu_{diff}=4.0$. For example, if $\bar{x}_1=17.5$, $\sigma_1=8.75$, $\bar{x}_2=11.0$, and $\sigma_2=5.5$, and again each sample has $100$ observations, then $(\bar{x}_1-\bar{x}_2)=6.5$ and $SE_{(\bar{x}_1 - \bar{x}_2)}=\sqrt{\frac{8.75^2}{100} + \frac{5.5^2}{100}}=\sqrt{0.7656+0.3025}=1.0335$. The $95\%$ confidence interval will be $(6.5-1.96\cdot1.0335,\ 6.5+1.96\cdot1.0335)=(4.4743,\ 8.5257)$. That confidence interval will *not* include the true difference in means, $\mu_{diff}=4.0$.
+
+```{r}
+#http://www.statmethods.net/advgraphs/probability.html
+
+n_1_example <- 100; n_2_example <- 100
+mu_1 <- 16.0; mu_2 <- 12.0; mu_diff <- mu_1 - mu_2
+sigma_1 <- 8.0; sigma_2 <- 6.0
+se <- sqrt(sigma_1 ^ 2 / n_1_example + sigma_2 ^ 2 / n_2_example)
+
+# x = p_diff +/- 5 std_dev's
+x <- seq(-5,5,length=1000)*se + mu_diff
+hx <- dnorm(x, mu_diff ,se)
+
+# Values used to shade areas under the curve
+upper_bound <- mu_diff + 1.96 * se 
+lower_bound <- mu_diff - 1.96 * se 
+
+plot(x, hx, type="n", xlab = "", ylab="", main="Sampling distribution of a difference in means", axes=FALSE)
+
+i <- x >= upper_bound & x <= max(x) # indexes of x where x >= upper_bound
+lines(x, hx) # plots normal distribution
+polygon(c(upper_bound,x[i],max(x)), c(0,hx[i],0), col="grey") # shades area grey where x >= upper_bound
+
+j <- x >= min(x) & x <= lower_bound # indexes of x where x <= than lower_bound
+polygon(c(min(x),x[j],lower_bound), c(0,hx[j],0), col="grey") # shades area grey where x <= lower_bound
+
+axis(1, at=seq(0.00, 10.0, 0.5), pos=0) # draws axis
+abline(v=mu_diff)
+grid()
+
+x_1_hat <- 17.5; x_2_hat <- 11.0; mu_diff_hat_example <- x_1_hat - x_2_hat
+s_1 <- 8.75; s_2 <- 5.5
+se_mu_diff_hat <- sqrt(s_1 ^ 2 / n_1_example + s_2 ^ 2 / n_2_example)
+axis(1, at=c(mu_diff_hat_example - 1.96 * se_mu_diff_hat, mu_diff_hat_example, mu_diff_hat_example + 1.96 * se_mu_diff_hat), pos=-0.1, col = "blue", lwd = 2, lwd.ticks = 1) 
+
+text(x = 0.6, y = 0.37, labels = expression(paste(mu[diff], " = 4.0")))
+text(x = 0.8, y = 0.33, labels = expression(paste(n[1], " = ", n[2],  " = 100")))
+text(x = 0.65, y = 0.29, labels = expression(paste(SE, " = 1.00")))
+text(x = 0.825, y = 0.255, labels = expression(paste(bar(x)[1]-bar(x)[2], " = 6.5")))
+text(x = 1.0, y = 0.22, labels = expression(paste(SE[bar(x)[1]-bar(x)[2]], " = 1.0335")))
+```
+
+### 4.2 Conditions for the confidence interval
+
+The confidence interval of the difference in means is given by
+
+$$
+\bar{x}_{diff}\pm z^*\cdot SE
+$$
+
+where $\bar{x}_{diff}=\bar{x}_{1}-\bar{x}_{2}$, is this sample pair's point estimate of the difference in mean self-ranking between Obama and Romney voters, $z^*$ is the critical value corresponding to the confidence level we want, and the standard error $SE$ is given by:
+
+$$
+SE=\sqrt{\frac{s_1^{2}}{n_1}+\frac{s_2^{2}}{n_2}}
+$$
+
+where $s_1$ and $s_2$ are the standard deviations of the samples, and $n_1$ and $n_2$ the number of observations of each sample.
+
+The conditions for the validity of the confidence interval are:
+
+1. Sampled observations must be independent, both within groups and between groups.
+
+2. Each sample size is large: $n_1\geq 30$ and $n_2\geq 30$
+
+3. The distribution of each sample's observations is not strongly skewed.
+
+Each observation within a sample is independent of the next, i.e., each respondent who voted for Romney is independent of all other respondents who voted for Romney. Also, respondents who voted for Romney are independent of those who voted for Obama. The data is not paired. That takes care of the first condition.
+
+As we saw in the table on section $3.0$, there were $571$ Romney voters and $1054$ Obama voters, so each sample size is much larger than $30$.
+
+Finally, we can take a look at the sample distributions
+
+```{r}
+par(mfrow = c(1,2))
+hist(Romney_self_rank, main = "Self-ranking in society\n of Romney voters", xlab = "Self-ranking in society", ylab = "Fraction of respondents", freq = FALSE)
+hist(Obama_self_rank, main = "Self-ranking in society\n of Obama voters", xlab = "Self-ranking in society", ylab = "Fraction of respondents", freq = FALSE)
+```
+
+Although both distributions are a little right-skewed, it's not too bad.
+
+### 4.3 Critical value $z^*$
+
+The $z^*$ corresponding to a $95\%$ confidence interval in the [standard normal distribution](https://www.mathsisfun.com/data/standard-normal-distribution-table.html) can be computed using R:
+```{r}
+z_star_95 <- qnorm(p = 0.025, mean = 0, sd = 1, lower.tail = FALSE)
+cat("z-value corresponding to 95% confidence interval:", z_star_95)
+```
+
+### 4.4 Standard error
+
+Computing the standard error of the sample using the results from section $3.0$.
+```{r}
+se <- sqrt(Obama_self_rank_sd^2 / Obama_num + Romney_self_rank_sd^2 / Romney_num)
+cat("Standard error:", se)
+```
+
+### 4.5 Confidence interval
+
+Computing the confidence interval bounds
+```{r}
+diff_in_avg <- Obama_self_rank_mean - Romney_self_rank_mean
+conf_int_lb <- diff_in_avg - z_star_95 * se
+conf_int_ub <- diff_in_avg + z_star_95 * se
+cat("Difference in mean self-ranking:", diff_in_avg, "\nConfidence interval lower bound:", conf_int_lb, "\nConfidence interval upper bound:", conf_int_ub)
+```
+
+Hence, our confidence interval is
+$$
+0.1797\pm 1.96\cdot 0.0886=(0.0061, 0.3533)
+$$
+
+We are $95\%$ confident that the true difference in mean self-ranking between Obama and Romney voters, $\mu_{diff}$, is between $0.0061$ and $0.3533$.
+
+## 5.0 Hypothesis testing
+
+We can use the CLT and the data collected to construct a hypothesis testing framework. The hypothesis test considers two possible interpretations of our data, a null hypothesis $H_0$, and an alternative hypothesis $H_a$. $H_0$ basically says that the sampled data could have been drawn simply by chance, and so, it is misleading. There is "nothing going on". $H_a$ takes the view that the data collected reveals that "something *is* going on". We will either reject the null hypothesis in favor of this alternative, or we will fail to reject it and conclude the sampled data could have been drawn simply by chance. Note that even if we fail to reject $H_0$, that does not mean we accept it as the ground truth, it's just that the data we have collected does not allows us to discard $H_0$.
+
+Suppose we want to find out if the $0.1797$ difference in mean self-ranking is statistically significant. Our null hypothesis $H_0$ is:
+
+$$
+H_0: The\ true\ difference\ in\ mean\ self-ranking\\ between\ Obama\ and\ Romney\ voters\ is\ \mu_{diff}=0
+\\
+H_a: \mu_{diff}\neq 0
+$$
+
+To perform the test, we assume that $H_0$ is true and ask, given that $H_0$ is true, how probable it is to observe data as extreme or more as the one we have.
+
+### 5.1 The p-value
+
+The p-value quantifies the strength of the evidence against the null hypothesis. We compute it by asking ourselves, given that the null hypothesis $H_0$ is true, what is the probability of observing data as extreme or more as the one we have.
+
+$$
+P(observing\ data\ as\ extreme\ or\ more\ |\ H_{0}\ is\ true)
+$$
+
+That probability is the p-value. Typically, we use a $5\%$ significance level as the threshold to reject the null. If the p-value is less than $5\%$, we reject the null in favor of the alternative.
+
+Our hypothesis test is two-sided. The null hypothesis is that $\mu_{diff}=0$, so by asking what is the probability of $observing\ data\ as\ extreme\ or\ more$ in a world in which the null hypothesis is true, we are wondering how probable it is to draw a sample with a difference in means of $0.1797$ or higher like the one we have drawn, or one with a difference in proportions of $-0.1797$ or lower. Let's see it graphically.
+
+```{r}
+#http://www.statmethods.net/advgraphs/probability.html
+
+mu_diff <- 0.00
+
+x <- seq(-4,4,length=1000)*se + mu_diff
+hx <- dnorm(x, mu_diff, se)
+
+lb <- diff_in_avg; ub <- max(x)
+
+plot(x, hx, type="n", xlab="Difference in mean self-ranking between Obama and Romney voters", ylab="", main="Sampling distribution under null hypothesis", axes=FALSE)
+
+i <- x >= lb & x <= ub # indexes of x where x >=  lb 
+lines(x, hx) # plots normal distribution
+polygon(c(lb,x[i],ub), c(0,hx[i],0), col="red") # shades area where x >= lb in red
+
+j <- x >= min(x) & x <= -lb # indexes of x where x <= -lb 
+polygon(c(min(x),x[j],-lb), c(0,hx[j],0), col="red") # shades area where x <= -lb in red
+
+axis(1, at=seq(-0.4, 0.4, 0.05), pos=0) # draws axis
+abline(v=mu_diff)
+grid()
+```
+<br>
+
+Under the null hypothesis, we live in a world in which the sampling distribution of the difference in mean self-ranking between Obama and Romney voters is centered at $\mu_{diff} = 0.0$ and has a standard distribution of $sd=0.1797$. In such a world, we have drawn a sample where the difference in means is $\bar{x}_{diff}=0.1797$. What is the probability of drawing a sample with a difference in means $\bar{x}_{diff}$ as high or higher, in either direction, in a world in which the null hypothesis is true?
+
+$$
+P(drawing\ a\ sample\ where\ the\ difference\ in\ mean\ self-ranking\\ between\ Obama\ and\ Romney\ voters\ is\ as\ large\ or\ larger\ than\ 0.1797 |\ H_{0}\ is\ true)
+\\
+P(\bar{x}_{diff}\ \geq\ 0.1797\ or\ \bar{x}_{diff}\ \leq\ -0.1797 |\ \mu_{diff} =  0)
+$$
+
+That probability is the area under the sampling distribution shaded in red in the plot. It can be computed using `pnorm()`.
+```{r}
+area <- 2 * pnorm(q = diff_in_avg, mean = mu_diff, sd = se, lower.tail = FALSE)
+# Multiplied by 2 because the hypothesis test is two-sided.
+cat("Our p-value:", area)
+```
+
+So our [p-value](https://en.wikipedia.org/wiki/P-value), the probability of drawing a sample pair with $\bar{x}_{diff}=0.1797$ or higher, or one with $\bar{x}_{diff}=-0.1797$ or lower, under the null hypothesis, is about $0.043$. At the $5\%$ significance level, we can (barely) reject the null hypothesis. Looking at the confidence interval, we might have surmised that it was going to be close, since the confidence interval almost includes the null value, $0$. The lower bound of the confidence interval for $\bar{x}_{diff}$ is $0.0061$, and our null value is $\mu_{diff}=0$.
+
+## References
+
+1. Çetinkaya-Rundel, M. ***Data Analysis and Statistical Inference***. Spring 2014. [Coursera](http://www.coursera.org).
+
+2. Diez, D., Barr, C., Çetinkaya-Rundel, M. ***OpenIntro Statistics, Second Edition***. PDF.
+
+3. Navidi, W. ***Statistics for engineers and scientists, Third Edition***. New York: McGraw Hill, 2011.
+
+4. UCLA Institute for Digital Reserach and Education, ***HOW CAN I INCLUDE GREEK LETTERS IN MY PLOT LABELS? | R CODE FRAGMENTS***. Retrieved from [https://stats.idre.ucla.edu](https://stats.idre.ucla.edu/r/codefragments/greek_letters/)
+
+5. Kabacoff, R. ***Probability Plots***. Retrieved from [http://www.statmethods.net](http://www.statmethods.net/advgraphs/probability.html)
+
+6. Carlos Cinelli and Tom, ***Code chunk font size in Rmarkdown with knitr and latex***. Retrieved from [https://stackoverflow.com](https://stackoverflow.com/questions/25646333/code-chunk-font-size-in-rmarkdown-with-knitr-and-latex)
+
+7. DrewConway and Christopher DuBois, ***Getting LaTeX into R Plots***. Retrieved from [https://stackoverflow.com](https://stackoverflow.com/questions/1395105/getting-latex-into-r-plots)
